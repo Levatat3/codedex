@@ -1,0 +1,285 @@
+"""Tests for codedex. Standard library only: python -m unittest -v
+
+Every test builds its own throwaway tree in a temp dir, so nothing here reads
+or writes the real index or the user's code.
+"""
+import json
+import os
+import shutil
+import tempfile
+import unittest
+
+import codedex
+
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+RADIO = '''"""
+Drake Interplanetary HCN Radio
+Star Citizen themed internet radio player.
+Requires: PyQt6, python-vlc
+"""
+import sys
+
+
+def main():
+    pass
+'''
+
+QR = '''"""Generate QR codes from whatever is on the clipboard."""
+import sys
+
+
+def run():
+    pass
+'''
+
+UNDOCUMENTED = '''import math
+
+
+def servo_angle(pulse):
+    return pulse * math.pi
+
+
+def servo_reset():
+    pass
+'''
+
+
+class TreeCase(unittest.TestCase):
+    """Base: a temp tree plus an index path that never touches the real one."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="codedex-test-")
+        self.root = os.path.join(self.tmp, "tree")
+        os.makedirs(self.root)
+        self._env = {}
+        for k in ("CODEDEX_INDEX", "CODEDEX_CATEGORIES", "CODEDEX_ROOT"):
+            self._env[k] = os.environ.pop(k, None)
+        os.environ["CODEDEX_INDEX"] = os.path.join(self.tmp, "index.json")
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def build(self, **kw):
+        return codedex.build(self.root, verbose=False, **kw)
+
+    def names(self, results):
+        return [p["name"] for _score, p, _hits in results]
+
+
+class HeaderExtraction(TreeCase):
+
+    def test_pulls_module_docstring(self):
+        p = os.path.join(self.root, "a.py")
+        write(p, RADIO)
+        header, total, _body = codedex.extract_header(p, "python")
+        self.assertIn("Star Citizen", header)
+        self.assertGreater(total, 5)
+
+    def test_undocumented_file_has_no_header(self):
+        p = os.path.join(self.root, "b.py")
+        write(p, UNDOCUMENTED)
+        header, _total, body = codedex.extract_header(p, "python")
+        self.assertEqual(header.strip(), "")
+        self.assertIn("servo", body.lower())
+
+    def test_missing_file_is_not_fatal(self):
+        header, total, _body = codedex.extract_header(
+            os.path.join(self.root, "nope.py"), "python")
+        self.assertEqual(header, "")
+        self.assertEqual(total, 0)
+
+
+class HeaderQuality(unittest.TestCase):
+
+    def test_empty_scores_zero(self):
+        self.assertEqual(codedex.header_quality(""), 0)
+
+    def test_too_few_words_scores_zero(self):
+        self.assertEqual(codedex.header_quality("ok go"), 0)
+
+    def test_separator_line_scores_zero(self):
+        self.assertEqual(codedex.header_quality("# ----------------------"), 0)
+
+    def test_licence_text_scores_zero(self):
+        mit = ("Permission is hereby granted, free of charge, to any person "
+               "obtaining a copy of this software, THE SOFTWARE IS PROVIDED AS IS "
+               "WITHOUT WARRANTIES OF MERCHANTABILITY and fitness")
+        self.assertEqual(codedex.header_quality(mit), 0)
+
+    def test_real_description_scores(self):
+        self.assertGreater(
+            codedex.header_quality("Star Citizen themed internet radio player."), 0)
+
+
+class ProjectRoot(unittest.TestCase):
+
+    def test_first_segment_without_categories(self):
+        self.assertEqual(codedex.project_root_of("tools/radio/x.py", set()), "tools")
+
+    def test_child_of_a_category(self):
+        self.assertEqual(
+            codedex.project_root_of("tools/radio/x.py", {"tools"}), "tools/radio")
+
+    def test_backslashes_normalise(self):
+        self.assertEqual(
+            codedex.project_root_of(r"tools\radio\x.py", {"tools"}), "tools/radio")
+
+    def test_file_at_root_is_dot(self):
+        self.assertEqual(codedex.project_root_of("x.py", set()), ".")
+
+
+class IndexPath(TreeCase):
+
+    def test_env_override_wins(self):
+        self.assertEqual(codedex.index_path_for(self.root),
+                         os.environ["CODEDEX_INDEX"])
+
+    def test_different_roots_get_different_files(self):
+        os.environ.pop("CODEDEX_INDEX")
+        a = codedex.index_path_for(os.path.join(self.tmp, "one"))
+        b = codedex.index_path_for(os.path.join(self.tmp, "two"))
+        self.assertNotEqual(a, b)
+
+    def test_same_root_is_stable(self):
+        os.environ.pop("CODEDEX_INDEX")
+        a = codedex.index_path_for(self.root)
+        b = codedex.index_path_for(self.root)
+        self.assertEqual(a, b)
+
+    def test_not_written_beside_the_module(self):
+        os.environ.pop("CODEDEX_INDEX")
+        here = os.path.dirname(os.path.abspath(codedex.__file__))
+        self.assertNotEqual(
+            os.path.dirname(codedex.index_path_for(self.root)), here)
+
+
+class Building(TreeCase):
+
+    def test_indexes_projects_and_writes_the_file(self):
+        write(os.path.join(self.root, "radio-thing", "player.py"), RADIO)
+        write(os.path.join(self.root, "qr-tool", "qr.py"), QR)
+        index = self.build()
+        self.assertEqual(index["n_files"], 2)
+        self.assertEqual(sorted(index["projects"]), ["qr-tool", "radio-thing"])
+        self.assertTrue(os.path.exists(os.environ["CODEDEX_INDEX"]))
+
+    def test_records_absolute_root(self):
+        write(os.path.join(self.root, "a", "x.py"), RADIO)
+        self.assertTrue(os.path.isabs(self.build()["root"]))
+
+    def test_skips_dependency_and_build_dirs(self):
+        write(os.path.join(self.root, "real", "x.py"), RADIO)
+        write(os.path.join(self.root, "real", "node_modules", "dep.js"), QR)
+        write(os.path.join(self.root, "real", "__pycache__", "junk.py"), QR)
+        self.assertEqual(self.build()["n_files"], 1)
+
+    def test_ignores_unknown_extensions(self):
+        write(os.path.join(self.root, "proj", "notes.rtf"), "some prose here")
+        write(os.path.join(self.root, "proj", "x.py"), RADIO)
+        self.assertEqual(self.build()["n_files"], 1)
+
+    def test_readme_becomes_project_blurb(self):
+        write(os.path.join(self.root, "proj", "x.py"), UNDOCUMENTED)
+        write(os.path.join(self.root, "proj", "README.md"),
+              "# proj\n\nA hovercraft full of eels.\n")
+        index = self.build()
+        self.assertIn("eels", index["projects"]["proj"]["readme"].lower())
+
+    def test_categories_split_children_into_projects(self):
+        write(os.path.join(self.root, "holder", "alpha", "a.py"), RADIO)
+        write(os.path.join(self.root, "holder", "beta", "b.py"), QR)
+        flat = self.build()
+        self.assertEqual(sorted(flat["projects"]), ["holder"])
+        split = self.build(categories={"holder"})
+        self.assertEqual(sorted(split["projects"]), ["holder/alpha", "holder/beta"])
+
+
+class Suggestions(TreeCase):
+
+    def test_suggests_a_folder_of_projects(self):
+        write(os.path.join(self.root, "holder", "alpha", "a.py"), RADIO)
+        write(os.path.join(self.root, "holder", "beta", "b.py"), QR)
+        self.assertIn("holder", codedex.suggest_categories(self.root))
+
+    def test_does_not_suggest_a_plain_project(self):
+        write(os.path.join(self.root, "proj", "x.py"), RADIO)
+        self.assertNotIn("proj", codedex.suggest_categories(self.root))
+
+    def test_suggestion_is_never_applied_on_its_own(self):
+        """The whole point: a build with no --category stays flat."""
+        write(os.path.join(self.root, "holder", "alpha", "a.py"), RADIO)
+        write(os.path.join(self.root, "holder", "beta", "b.py"), QR)
+        self.assertEqual(sorted(self.build()["projects"]), ["holder"])
+
+
+class Searching(TreeCase):
+
+    def setUp(self):
+        super().setUp()
+        write(os.path.join(self.root, "radio-thing", "player.py"), RADIO)
+        write(os.path.join(self.root, "qr-tool", "qr.py"), QR)
+        write(os.path.join(self.root, "servo-rig", "turret.py"), UNDOCUMENTED)
+        self.index = self.build()
+
+    def test_finds_by_docstring_not_folder_name(self):
+        self.assertEqual(
+            self.names(codedex.search(self.index, ["citizen"])), ["radio-thing"])
+
+    def test_every_term_must_land(self):
+        """AND semantics: 'radio' hits, 'aardvark' does not, so nothing matches."""
+        self.assertEqual(codedex.search(self.index, ["radio", "aardvark"]), [])
+
+    def test_multi_word_match(self):
+        self.assertEqual(
+            self.names(codedex.search(self.index, ["qr", "clipboard"])), ["qr-tool"])
+
+    def test_case_insensitive(self):
+        self.assertEqual(
+            self.names(codedex.search(self.index, ["STAR", "CiTiZeN"])), ["radio-thing"])
+
+    def test_undocumented_code_found_via_body_slice(self):
+        self.assertIn("servo-rig", self.names(codedex.search(self.index, ["servo"])))
+
+    def test_header_outranks_folder_name(self):
+        """A project whose docstring says 'radio' beats one merely named it."""
+        write(os.path.join(self.root, "radio", "unrelated.py"),
+              '"""Spreadsheet column width calculator for invoices."""\nimport os\n\n\ndef go():\n    pass\n')
+        index = self.build()
+        ranked = self.names(codedex.search(index, ["radio"]))
+        self.assertEqual(ranked[0], "radio-thing")
+        self.assertIn("radio", ranked)
+
+    def test_no_match_returns_empty(self):
+        self.assertEqual(codedex.search(self.index, ["zzzznothing"]), [])
+
+
+class Roundtrip(TreeCase):
+
+    def test_index_reloads_from_disk(self):
+        write(os.path.join(self.root, "radio-thing", "player.py"), RADIO)
+        self.build()
+        with open(os.environ["CODEDEX_INDEX"], encoding="utf-8") as f:
+            reloaded = json.load(f)
+        self.assertEqual(
+            self.names(codedex.search(reloaded, ["citizen"])), ["radio-thing"])
+
+    def test_load_index_builds_when_missing(self):
+        write(os.path.join(self.root, "radio-thing", "player.py"), RADIO)
+        self.assertFalse(os.path.exists(os.environ["CODEDEX_INDEX"]))
+        index = codedex.load_index(self.root)
+        self.assertEqual(index["n_files"], 1)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

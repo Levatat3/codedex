@@ -92,8 +92,9 @@ CATEGORY_PROBE_DEPTH = 3
 def _has_source_directly(path):
     """Any indexable source file sitting directly in this folder?"""
     try:
-        return any(e.is_file() and os.path.splitext(e.name)[1].lower() in SOURCE_EXT
-                   for e in os.scandir(path))
+        with os.scandir(path) as it:
+            return any(e.is_file() and os.path.splitext(e.name)[1].lower() in SOURCE_EXT
+                       for e in it)
     except OSError:
         return False
 
@@ -105,7 +106,8 @@ def _has_source_below(path, depth=CATEGORY_PROBE_DEPTH):
     if _has_source_directly(path):
         return True
     try:
-        subs = [e for e in os.scandir(path) if e.is_dir() and e.name not in SKIP_DIRS]
+        with os.scandir(path) as it:
+            subs = [e for e in it if e.is_dir() and e.name not in SKIP_DIRS]
     except OSError:
         return False
     return any(_has_source_below(e.path, depth - 1) for e in subs)
@@ -132,15 +134,16 @@ def suggest_categories(root):
     """
     cats = set()
     try:
-        tops = [e for e in os.scandir(root) if e.is_dir() and e.name not in SKIP_DIRS]
+        with os.scandir(root) as it:
+            tops = [e for e in it if e.is_dir() and e.name not in SKIP_DIRS]
     except OSError:
         return cats
     for e in tops:
         if _has_source_directly(e.path):
             continue                       # a project in its own right
         try:
-            kids = [c for c in os.scandir(e.path)
-                    if c.is_dir() and c.name not in SKIP_DIRS]
+            with os.scandir(e.path) as it:
+                kids = [c for c in it if c.is_dir() and c.name not in SKIP_DIRS]
         except OSError:
             continue
         if any(_has_source_below(c.path) for c in kids):

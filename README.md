@@ -49,14 +49,22 @@ not "which lines contain this string."
 ## Install
 
 ```bash
-pip install codedex
+pip install git+https://github.com/Levatat3/codedex.git
 ```
 
-Or just take the file — it imports nothing outside the standard library:
+Or just take the single file and run it. It imports nothing outside the standard library:
 
 ```bash
 python codedex.py build
 ```
+
+## Tests
+
+```bash
+python -m unittest -v
+```
+
+34 tests, standard library only — no pytest, nothing to install.
 
 ---
 
