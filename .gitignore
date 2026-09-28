@@ -1,0 +1,10 @@
+# the index is generated and contains a description of the user's whole tree
+index.json
+__pycache__/
+*.pyc
+build/
+dist/
+*.egg-info/
+*.bak-*
+dist/
+venv*/
