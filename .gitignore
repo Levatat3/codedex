@@ -8,3 +8,7 @@ dist/
 *.bak-*
 dist/
 venv*/
+
+# internal working notes - local paths, usernames, private quotes
+TIMELINE.md
+TODO-BEFORE-PUBLISH.md
