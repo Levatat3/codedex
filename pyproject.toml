@@ -9,7 +9,7 @@ description = "Find your own code by what it does, not what the folder is called
 readme = "README.md"
 requires-python = ">=3.8"
 license = { file = "LICENSE" }
-authors = [{ name = "Tyler", email = "tybot43@gmail.com" }]
+authors = [{ name = "Tyler (Levatat3)", email = "levbot.py@gmail.com" }]
 keywords = ["search", "index", "projects", "docstring", "cli", "developer-tools"]
 classifiers = [
     "Development Status :: 4 - Beta",
