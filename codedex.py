@@ -68,13 +68,30 @@ SKIP_DIRS = {
     "codedex",            # this tool - its docstring name-drops other projects
 }
 
+# Extension -> language label. The label is only used for the "python:12, go:3"
+# summary and to pick a comment style in extract_header(), so near-neighbours
+# can share one.
 SOURCE_EXT = {
     ".py": "python", ".pyw": "python",
-    ".js": "js", ".ts": "js", ".jsx": "js", ".tsx": "js",
-    ".java": "java", ".cs": "csharp", ".c": "c", ".cpp": "c", ".h": "c",
-    ".ps1": "shell", ".bat": "shell", ".cmd": "shell", ".sh": "shell",
-    ".html": "web", ".css": "web",
-    ".glsl": "shader",
+    ".js": "js", ".mjs": "js", ".cjs": "js",
+    ".ts": "js", ".jsx": "js", ".tsx": "js",
+    ".java": "java", ".kt": "kotlin", ".kts": "kotlin", ".scala": "scala",
+    ".cs": "csharp", ".fs": "fsharp",
+    ".c": "c", ".h": "c", ".cpp": "c", ".cc": "c", ".cxx": "c",
+    ".hpp": "c", ".hh": "c",
+    ".go": "go", ".rs": "rust", ".zig": "zig", ".swift": "swift",
+    ".dart": "dart", ".nim": "nim",
+    ".rb": "ruby", ".rake": "ruby",
+    ".php": "php", ".pl": "perl", ".pm": "perl",
+    ".ex": "elixir", ".exs": "elixir", ".jl": "julia", ".r": "r",
+    ".lua": "lua", ".hs": "haskell", ".sql": "sql",
+    ".clj": "clojure", ".cljs": "clojure", ".el": "lisp", ".lisp": "lisp",
+    ".ps1": "shell", ".psm1": "shell", ".bat": "shell", ".cmd": "shell",
+    ".sh": "shell", ".bash": "shell", ".zsh": "shell", ".fish": "shell",
+    ".gd": "gdscript",
+    ".html": "web", ".css": "web", ".scss": "web", ".sass": "web",
+    ".less": "web", ".vue": "web", ".svelte": "web",
+    ".glsl": "shader", ".hlsl": "shader", ".wgsl": "shader",
 }
 
 # how much of each file to read looking for a header
@@ -160,8 +177,9 @@ def _clean(lines):
     out = []
     for l in lines:
         l = l.strip()
-        l = re.sub(r'^(#+|//+|/\*+|\*+/?|REM\b|<!--|-->)', '', l, flags=re.I).strip()
-        l = re.sub(r'(\*/|-->)$', '', l).strip()
+        l = re.sub(r'^(--\[\[|#+|//+|/\*+|\*+/?|--+|;+|%+|REM\b|<!--|-->)',
+                   '', l, flags=re.I).strip()
+        l = re.sub(r'(\*/|-->|\]\]|--\}|-\})$', '', l).strip()
         if l in ('"""', "'''"):
             continue
         out.append(l)
@@ -229,20 +247,43 @@ def extract_header(path, kind):
     else:
         # C-style block, or a leading run of line comments
         started = False
-        for l in lines:
+        close_on = "*/"
+        # Skip preamble that is not a comment and not a description: PHP's
+        # "<?php", a shebang, "@echo off", a doctype. Without this the scan
+        # stops on line 1 and a perfectly good comment below it is missed.
+        scan = list(lines)
+        while scan:
+            probe = scan[0].strip().lower()
+            if (not probe
+                    or probe.startswith(("<?php", "<?=", "<?", "#!", "@echo",
+                                         "<!doctype", "﻿"))):
+                scan.pop(0)
+                continue
+            break
+        for l in scan:
             s = l.strip()
-            if not started and s.startswith("/*"):
-                started = True
+            # block comment openers, with the closer each one expects
+            opener = None
+            for start, end in (("/*", "*/"), ("--[[", "]]"), ("{-", "-}")):
+                if s.startswith(start):
+                    opener = (start, end)
+                    break
+            if not started and opener:
+                start, closer = opener
+                started, close_on = True, closer
                 collected.append(l)
-                if "*/" in s[2:]:
+                if closer in s[len(start):]:
                     break
                 continue
             if started:
                 collected.append(l)
-                if "*/" in s:
+                if close_on in s:
                     break
                 continue
-            if s.startswith("//") or s.startswith("#") or s.upper().startswith("REM"):
+            # line comments: // (C family), # (shell/ruby/perl), -- (lua, sql,
+            # haskell), ; (lisp), % (erlang/tex), REM (batch)
+            if (s.startswith(("//", "#", "--", ";", "%"))
+                    or s.upper().startswith("REM")):
                 collected.append(l)
             elif not s:
                 if collected:

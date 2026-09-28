@@ -58,13 +58,33 @@ Or just take the single file and run it. It imports nothing outside the standard
 python codedex.py build
 ```
 
+## Languages
+
+62 extensions, 29 languages:
+
+| Comment style | Languages |
+|---|---|
+| `"""docstring"""` | Python |
+| `//` and `/* */` | JS, TS, Java, Kotlin, Scala, C#, F#, C, C++, Go, Rust, Zig, Swift, Dart, Nim, PHP, CSS/SCSS/Sass/Less, Vue, Svelte, GLSL/HLSL/WGSL |
+| `#` | Ruby, Perl, Elixir, Julia, R, GDScript, shell (sh/bash/zsh/fish/PowerShell) |
+| `--` and `--[[ ]]` | Lua, SQL |
+| `{- -}` | Haskell |
+| `;` | Clojure, Lisp, Elisp |
+| `REM` | batch |
+
+Non-comment preamble is skipped before the scan — PHP's `<?php`, shebangs, `@echo off`,
+doctypes — so the description underneath is still found.
+
+Adding a language is one line in `SOURCE_EXT` if it uses one of the styles above.
+
 ## Tests
 
 ```bash
 python -m unittest -v
 ```
 
-34 tests, standard library only — no pytest, nothing to install.
+37 tests, standard library only — no pytest, nothing to install. Each builds its own
+throwaway tree, so the suite never touches your real index or your code.
 
 ---
 
@@ -182,8 +202,8 @@ Being clear about this up front:
   searching *inside* code, use ripgrep. This answers a different question.
 - **Not a documentation generator.** It reads what you already wrote. Projects with no
   docstrings and no README get thin results, and that is a fair reflection of reality.
-- **Source files only.** It has a fixed extension list (Python, JS/TS, Java, C#, C/C++,
-  shell, web, shaders) and skips build output, dependencies and caches.
+- **Source files only.** 62 extensions across 29 languages (below); everything else, plus
+  build output, dependencies and caches, is skipped.
 
 The upside of all those noes: it runs anywhere Python runs, in one file, offline, with
 nothing installed and nothing phoning home.

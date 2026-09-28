@@ -281,5 +281,65 @@ class Roundtrip(TreeCase):
         self.assertEqual(index["n_files"], 1)
 
 
+class OtherLanguages(TreeCase):
+    """Each language's leading comment block must survive extraction."""
+
+    # filename -> (source lines, phrase that must come back out of the header)
+    CASES = {
+        'main.go':     ('// Package fleet tracks cargo ships across systems.\n// Talks to the harbour API.\npackage fleet\n',
+                        'cargo ships'),
+        'lib.rs':      ('//! Crate for parsing telemetry frames off a serial port.\nuse std::io;\n',
+                        'telemetry frames'),
+        'conf.lua':    ('-- Neovim colourscheme that mimics an amber CRT terminal.\nlocal M = {}\n',
+                        'amber CRT'),
+        'block.lua':   ('--[[\nSprite atlas packer for the roguelike.\nBin-packs frames into one texture.\n]]\nlocal atlas = {}\n',
+                        'Sprite atlas'),
+        'report.sql':  ('-- Monthly revenue rollup by warehouse region.\nSELECT 1;\n',
+                        'revenue rollup'),
+        'app.rb':      ("# Sinatra app that serves the allotment watering schedule.\nrequire 'sinatra'\n",
+                        'watering schedule'),
+        'View.swift':  ('// SwiftUI view for the tide table widget.\nimport SwiftUI\n',
+                        'tide table'),
+        'Main.kt':     ('/* Android service that syncs beehive sensor readings. */\npackage hive\n',
+                        'beehive sensor'),
+        'core.clj':    (';; Clojure namespace for the chord progression generator.\n(ns core)\n',
+                        'chord progression'),
+        'Parse.hs':    ('{- Haskell parser for the tabletop dice notation. -}\nmodule Parse where\n',
+                        'dice notation'),
+        'index.php':   ('<?php\n// Invoice PDF generator for the plumbing business.\n',
+                        'Invoice PDF'),
+        'site.scss':   ('/* Stylesheet for the brutalist photography portfolio. */\nbody { margin: 0; }\n',
+                        'brutalist photography'),
+    }
+
+    def test_header_extracted_for_each_language(self):
+        for fn, (text, want) in self.CASES.items():
+            with self.subTest(file=fn):
+                path = os.path.join(self.root, "proj", fn)
+                write(path, text)
+                kind = codedex.SOURCE_EXT[os.path.splitext(fn)[1].lower()]
+                header, _total, _body = codedex.extract_header(path, kind)
+                self.assertIn(want.lower(), header.lower(),
+                              "%s (%s) header was: %r" % (fn, kind, header))
+
+    def test_each_language_is_searchable_after_a_build(self):
+        for i, (fn, (text, _want)) in enumerate(self.CASES.items()):
+            write(os.path.join(self.root, "proj%d" % i, fn), text)
+        index = self.build()
+        self.assertEqual(index["n_files"], len(self.CASES))
+        for fn, (_text, want) in self.CASES.items():
+            with self.subTest(file=fn):
+                terms = want.lower().split()
+                self.assertTrue(codedex.search(index, terms),
+                                "%s: no project matched %s" % (fn, terms))
+
+    def test_language_labels_recorded(self):
+        write(os.path.join(self.root, "p", "main.go"), self.CASES["main.go"][0])
+        write(os.path.join(self.root, "p", "conf.lua"), self.CASES["conf.lua"][0])
+        langs = self.build()["projects"]["p"]["langs"]
+        self.assertEqual(langs.get("go"), 1)
+        self.assertEqual(langs.get("lua"), 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
