@@ -184,6 +184,23 @@ class Building(TreeCase):
         write(os.path.join(self.root, "real", "__pycache__", "junk.py"), QR)
         self.assertEqual(self.build()["n_files"], 1)
 
+    def test_does_not_index_itself(self):
+        """The README says to drop the single file wherever is handy, which may
+        be inside the tree being scanned. Running it from there must not index
+        it: its docstring name-drops other projects and would pollute results.
+        SELF is patched to stand in for 'the copy you are running'.
+        """
+        tool = os.path.join(self.root, "codedex.py")
+        shutil.copy(codedex.__file__, tool)
+        write(os.path.join(self.root, "proj", "x.py"), RADIO)
+        previous, codedex.SELF = codedex.SELF, os.path.abspath(tool)
+        try:
+            index = self.build()
+        finally:
+            codedex.SELF = previous
+        self.assertEqual(index["n_files"], 1)
+        self.assertEqual(sorted(index["projects"]), ["proj"])
+
     def test_ignores_unknown_extensions(self):
         write(os.path.join(self.root, "proj", "notes.rtf"), "some prose here")
         write(os.path.join(self.root, "proj", "x.py"), RADIO)

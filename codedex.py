@@ -105,6 +105,9 @@ MIN_INTERESTING_LINES = 5
 # How deep to look when deciding whether a folder is a category (below).
 CATEGORY_PROBE_DEPTH = 3
 
+# This file, so a scan never indexes the tool itself.
+SELF = os.path.abspath(__file__)
+
 
 def _has_source_directly(path):
     """Any indexable source file sitting directly in this folder?"""
@@ -413,6 +416,12 @@ def build(root=ROOT, verbose=True, categories=None):
                 continue
 
             if ext not in SOURCE_EXT:
+                continue
+
+            # Don't index ourselves. The README suggests dropping this single
+            # file wherever it is handy, which can be inside the tree being
+            # scanned -- and its docstring name-drops other projects.
+            if os.path.abspath(full) == SELF:
                 continue
 
             kind = SOURCE_EXT[ext]

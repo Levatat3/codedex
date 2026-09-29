@@ -83,7 +83,7 @@ Adding a language is one line in `SOURCE_EXT` if it uses one of the styles above
 python -m unittest -v
 ```
 
-37 tests, standard library only — no pytest, nothing to install. Each builds its own
+38 tests, standard library only — no pytest, nothing to install. Each builds its own
 throwaway tree, so the suite never touches your real index or your code.
 
 ---
