@@ -68,6 +68,23 @@ SKIP_DIRS = {
     "codedex",            # this tool - its docstring name-drops other projects
 }
 
+# PyInstaller drops this beside the bundled interpreter: directly in a onedir
+# build before v6, inside its _internal/ folder from v6. Either way the folder
+# holding it is a frozen copy of Python plus every dependency (PIL, numpy...),
+# not the author's code. Matched by marker rather than by name because the
+# build is often moved out of dist/ and renamed, and "_internal" is also an
+# ordinary package name in real source trees.
+FROZEN_MARKER = "base_library.zip"
+
+# Files that say "this folder is one project", so it is never suggested as a
+# category of projects. *.spec is a PyInstaller build recipe.
+PROJECT_MARKERS = {
+    "pyproject.toml", "setup.py", "setup.cfg", "package.json", "cargo.toml",
+    "go.mod", "cmakelists.txt", "pom.xml", "build.gradle", "build.gradle.kts",
+    "makefile", "project.godot",
+}
+PROJECT_MARKER_EXT = {".spec", ".sln", ".csproj", ".uproject"}
+
 # Extension -> language label. The label is only used for the "python:12, go:3"
 # summary and to pick a comment style in extract_header(), so near-neighbours
 # can share one.
@@ -109,6 +126,27 @@ CATEGORY_PROBE_DEPTH = 3
 SELF = os.path.abspath(__file__)
 
 
+def _is_frozen_bundle(path):
+    """A PyInstaller build folder (see FROZEN_MARKER)."""
+    return os.path.isfile(os.path.join(path, FROZEN_MARKER))
+
+
+def _looks_like_one_project(path):
+    """A README, build recipe or package manifest directly in this folder."""
+    try:
+        with os.scandir(path) as it:
+            for e in it:
+                if not e.is_file():
+                    continue
+                name = e.name.lower()
+                if (name in PROJECT_MARKERS or name.startswith("readme")
+                        or os.path.splitext(name)[1] in PROJECT_MARKER_EXT):
+                    return True
+    except OSError:
+        pass
+    return False
+
+
 def _has_source_directly(path):
     """Any indexable source file sitting directly in this folder?"""
     try:
@@ -121,7 +159,7 @@ def _has_source_directly(path):
 
 def _has_source_below(path, depth=CATEGORY_PROBE_DEPTH):
     """Any source file at or under this folder? Stops at the first hit."""
-    if depth < 0:
+    if depth < 0 or _is_frozen_bundle(path):
         return False
     if _has_source_directly(path):
         return True
@@ -151,6 +189,10 @@ def suggest_categories(root):
     and a brain/, or a folder holding two projects, is the author's intent and
     cannot be read off the directory shape. Guessing wrong silently merges
     unrelated projects, which is worse than asking.
+
+    A folder with its own README, .spec or package manifest at the top is
+    taken to be one project and never suggested, even if its code all sits
+    in subfolders (src/, app/ ...).
     """
     cats = set()
     try:
@@ -159,7 +201,7 @@ def suggest_categories(root):
     except OSError:
         return cats
     for e in tops:
-        if _has_source_directly(e.path):
+        if _has_source_directly(e.path) or _looks_like_one_project(e.path):
             continue                       # a project in its own right
         try:
             with os.scandir(e.path) as it:
@@ -397,6 +439,9 @@ def build(root=ROOT, verbose=True, categories=None):
     n_files = 0
 
     for dirpath, dirnames, filenames in os.walk(root):
+        if FROZEN_MARKER in filenames:
+            dirnames[:] = []               # a PyInstaller build, not source
+            continue
         dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
         rel_dir = os.path.relpath(dirpath, root)
         if rel_dir == ".":

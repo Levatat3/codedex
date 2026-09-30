@@ -184,6 +184,24 @@ class Building(TreeCase):
         write(os.path.join(self.root, "real", "__pycache__", "junk.py"), QR)
         self.assertEqual(self.build()["n_files"], 1)
 
+    def test_skips_a_pyinstaller_build_wherever_it_lives(self):
+        """Found on a real tree: a onedir build moved out of dist/ to
+        FunkDrop/FunkDrop/ carried 578 bundled PIL files, and PIL's docstring
+        became the project's description. Both the v6 layout (_internal/) and
+        the older flat one must be skipped, but a real _internal package kept.
+        """
+        write(os.path.join(self.root, "app", "main.py"), RADIO)
+        v6 = os.path.join(self.root, "app", "App", "_internal")
+        write(os.path.join(v6, "base_library.zip"), "")
+        write(os.path.join(v6, "PIL", "Image.py"), QR)
+        old = os.path.join(self.root, "app", "OldApp")
+        write(os.path.join(old, "base_library.zip"), "")
+        write(os.path.join(old, "PIL", "Image.py"), QR)
+        write(os.path.join(self.root, "lib", "_internal", "core.py"), QR)
+        index = self.build()
+        self.assertEqual(index["projects"]["app"]["n_files"], 1)
+        self.assertEqual(index["projects"]["lib"]["n_files"], 1)
+
     def test_does_not_index_itself(self):
         """The README says to drop the single file wherever is handy, which may
         be inside the tree being scanned. Running it from there must not index
@@ -232,6 +250,20 @@ class Suggestions(TreeCase):
     def test_does_not_suggest_a_plain_project(self):
         write(os.path.join(self.root, "proj", "x.py"), RADIO)
         self.assertNotIn("proj", codedex.suggest_categories(self.root))
+
+    def test_does_not_suggest_a_project_with_its_own_readme_or_spec(self):
+        """Code only in subfolders, but the top says 'one project'."""
+        for name, marker in (("docd", "README.md"), ("frozen", "app.spec"),
+                             ("pkg", "pyproject.toml")):
+            write(os.path.join(self.root, name, marker), "x")
+            write(os.path.join(self.root, name, "src", "a.py"), RADIO)
+            write(os.path.join(self.root, name, "ui", "b.py"), QR)
+        self.assertEqual(codedex.suggest_categories(self.root), set())
+
+    def test_frozen_build_does_not_make_a_category(self):
+        write(os.path.join(self.root, "shipped", "App", "base_library.zip"), "")
+        write(os.path.join(self.root, "shipped", "App", "PIL", "Image.py"), QR)
+        self.assertNotIn("shipped", codedex.suggest_categories(self.root))
 
     def test_suggestion_is_never_applied_on_its_own(self):
         """The whole point: a build with no --category stays flat."""
