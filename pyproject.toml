@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codedex"
-version = "0.1.0"
+version = "0.1.1"
 description = "Find your own code by what it does, not what the folder is called."
 readme = "README.md"
 requires-python = ">=3.8"

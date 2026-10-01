@@ -49,7 +49,7 @@ not "which lines contain this string."
 ## Install
 
 ```bash
-pip install git+https://github.com/Levatat3/codedex.git
+pip install codedex
 ```
 
 Or just take the single file and run it. It imports nothing outside the standard library:
@@ -83,7 +83,7 @@ Adding a language is one line in `SOURCE_EXT` if it uses one of the styles above
 python -m unittest -v
 ```
 
-38 tests, standard library only — no pytest, nothing to install. Each builds its own
+41 tests, standard library only — no pytest, nothing to install. Each builds its own
 throwaway tree, so the suite never touches your real index or your code.
 
 ---
